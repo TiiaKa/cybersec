@@ -1,75 +1,83 @@
--- Table for roles (same as before)
-CREATE TABLE abc123_role (
-    role_id SERIAL PRIMARY KEY,
-    role_name VARCHAR(20) NOT NULL UNIQUE
-);
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- User table with minimal, pseudonymized, and encrypted fields
-CREATE TABLE abc123_user (
+-- enable crypto functions
+CREATE EXTENSION pgcrypto;
+
+-- Users table: Minimized personal information, pseudonymization via user_token
+CREATE TABLE zephyr_users (
     user_id SERIAL PRIMARY KEY,
-    username BYTEA NOT NULL UNIQUE,                -- Encrypted username
-    password_hash VARCHAR(255) NOT NULL,           -- Hashed password
-    email BYTEA,                                   -- Encrypted email
-    date_of_birth BYTEA,                           -- Encrypted birth date (if needed)
-    is_eligible BOOLEAN NOT NULL,                  -- Eligibility for booking (derived from age)
-    role_id INT NOT NULL REFERENCES abc123_role(role_id) ON DELETE CASCADE,
-    retention_date DATE,                           -- Marks data for automatic deletion
-    deleted_at TIMESTAMP,                          -- Soft delete for "right to be forgotten"
-    consent_given BOOLEAN DEFAULT FALSE,           -- Tracks whether consent has been obtained
-    consent_timestamp TIMESTAMP                    -- Timestamp of consent for data processing
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role VARCHAR(15) CHECK (role IN ('reserver', 'administrator')) NOT NULL,
+    birthdate DATE NOT NULL,
+    user_token UUID UNIQUE DEFAULT uuid_generate_v4()  -- Pseudonymized identifier
 );
 
--- Resource table
-CREATE TABLE abc123_resource (
+-- Resources table: Stores information about the resources that can be reserved
+CREATE TABLE zephyr_resources (
     resource_id SERIAL PRIMARY KEY,
     resource_name VARCHAR(100) NOT NULL,
-    description TEXT,
-    location VARCHAR(100),
-    created_by INT REFERENCES abc123_user(user_id) ON DELETE SET NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Track creation date for accountability
+    resource_description TEXT
 );
 
--- Reservation table with pseudonymized user ID and soft delete
-CREATE TABLE abc123_reservation (
+-- Reservations table: Pseudonymized reservation entries, no direct user identity stored
+CREATE TABLE zephyr_reservations (
     reservation_id SERIAL PRIMARY KEY,
-    reserver_id_hash BYTEA NOT NULL,               -- Pseudonymized reserver ID
-    resource_id INT NOT NULL REFERENCES abc123_resource(resource_id) ON DELETE CASCADE,
-    reservation_date DATE NOT NULL,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Timestamp of reservation creation
-    retention_date DATE,                            -- Marks data for automatic deletion after a period
-    deleted_at TIMESTAMP,                           -- Soft delete for user-controlled deletion
-    UNIQUE (resource_id, reservation_date, start_time)
+    reserver_token UUID REFERENCES zephyr_users(user_token) ON DELETE CASCADE, -- Pseudonym reference
+    resource_id INT REFERENCES zephyr_resources(resource_id),
+    reservation_start TIMESTAMP NOT NULL,
+    reservation_end TIMESTAMP NOT NULL,
+    CHECK (reservation_end > reservation_start)
 );
 
--- Audit log for tracking actions on user data
-CREATE TABLE abc123_audit_log (
+-- Logs table: Tracks administrator actions, e.g., add/delete resources, without exposing sensitive data
+CREATE TABLE zephyr_admin_logs (
     log_id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES abc123_user(user_id),
-    action TEXT NOT NULL,                            -- Description of action (e.g., "Login", "Data Accessed")
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP    -- Timestamp of the action
+    admin_id INT REFERENCES zephyr_users(user_id),
+    action VARCHAR(255) NOT NULL,
+    resource_id INT,
+    reservation_id INT,
+    timestamp TIMESTAMP DEFAULT NOW()
 );
 
--- Consent table for tracking consent history (optional)
-CREATE TABLE abc123_consent (
-    consent_id SERIAL PRIMARY KEY,
-    user_id INT NOT NULL REFERENCES abc123_user(user_id) ON DELETE CASCADE,
-    consent_type VARCHAR(100) NOT NULL,             -- Type of consent given (e.g., "data processing")
-    consent_status BOOLEAN NOT NULL,                -- TRUE if consent given, FALSE if revoked
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP   -- Timestamp of consent action
-);
+-- Function to check if the user is over 15 years old before making a reservation
+CREATE OR REPLACE FUNCTION zephyr_check_age() RETURNS TRIGGER AS $$
+BEGIN
+    IF (EXTRACT(YEAR FROM AGE(NEW.reservation_start, (SELECT birthdate FROM zephyr_users WHERE user_token = NEW.reserver_token))) < 15) THEN
+        RAISE EXCEPTION 'User must be over 15 years old to make a reservation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Public view, hiding reserver's identity completely for GDPR compliance
-CREATE VIEW abc123_public_reservations AS
+-- Trigger to enforce age check before inserting a reservation
+CREATE TRIGGER zephyr_check_age_trigger
+BEFORE INSERT ON zephyr_reservations
+FOR EACH ROW
+EXECUTE FUNCTION zephyr_check_age();
+
+-- View for anonymous access: Shows booked resources without reserver’s identity (pseudonymized view)
+CREATE VIEW zephyr_booked_resources_view AS
 SELECT
     r.resource_name,
-    re.reservation_date,
-    re.start_time,
-    re.end_time
-FROM
-    abc123_reservation re
-JOIN
-    abc123_resource r ON re.resource_id = r.resource_id
-WHERE
-    re.deleted_at IS NULL;
+    res.reservation_start,
+    res.reservation_end
+FROM zephyr_resources r
+JOIN zephyr_reservations res ON r.resource_id = res.resource_id;
+
+-- Deletion function for the right to erasure (compliant with GDPR)
+CREATE OR REPLACE FUNCTION zephyr_erase_user(user_id_to_erase INT) RETURNS VOID AS $$
+DECLARE
+    user_token_to_erase UUID;
+BEGIN
+    -- Find the pseudonym (token) of the user to erase
+    SELECT user_token INTO user_token_to_erase FROM zephyr_users WHERE user_id = user_id_to_erase;
+
+    -- Delete user and associated data
+    DELETE FROM zephyr_reservations WHERE reserver_token = user_token_to_erase;
+    DELETE FROM zephyr_users WHERE user_id = user_id_to_erase;
+    
+    -- Optionally, delete admin logs associated with the user
+    DELETE FROM zephyr_admin_logs WHERE admin_id = user_id_to_erase;
+END;
+$$ LANGUAGE plpgsql;
