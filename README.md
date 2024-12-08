@@ -17,6 +17,9 @@ Cybersecurity and data privacy 2024
 | 26.11.2024 | 2 | Lecture - |  The booking system project 2 |
 | 26.11.2024 | 3 | Lecture - |  lectures, The booking system project 2 |
 | 27.11.2024 | 6 | Lecture - | lectures,  The booking system project 2 |
+| 05.12.2024 | 4,5 | Lecture - | lectures,  started doing The booking system project 3 |
+| 06.12.2024 | 3 | Lecture - | more lectures, continued with The booking system project 3 |
+| 08.12.2024 | 2,5 | Lecture - | The booking system project 3, tried to get zap working properly|
 
 Project phase 2 reports:
 
