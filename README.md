@@ -20,8 +20,34 @@ Cybersecurity and data privacy 2024
 | 05.12.2024 | 4,5 | Lecture - | lectures,  started doing The booking system project 3 |
 | 06.12.2024 | 3 | Lecture - | more lectures, continued with The booking system project 3 |
 | 08.12.2024 | 2,5 | Lecture - | The booking system project 3, tried to get zap working properly|
+|15.12.2024  |3 |              |last three lectures
+|16.12.2024  |4 |              |more Portswigger labs, cisco exam
+|19.12.2024  |2,5|             |finished the booking system project 3, started to do the final phase
 
-Project phase 2 reports:
+
+### Project phase 3 reports:
+
+Security Findings for the Booking System
+1. Suspicious Comments (Passive Alert 10027)
+The application contains comments in its responses that may disclose sensitive information to an attacker. This was flagged by ZAP as a Passive Alert 10027.
+I would review the source code and remove all unnecessary comments, particularly those that include debugging information or mention sensitive system details or paths.
+
+2. Loosely Scoped Cookies (Passive Alert 90033)
+Cookies are scoped too broadly, allowing them to be accessed by subdomains unnecessarily. This can increase the risk of cookie theft. It was found because ZAP flagged it as a Passive Alert 90033. I would scope cookies to the specific subdomain where they are needed. 
+
+
+3. Authentication Request Identified (Passive Alert 10111)
+ZAP identified requests that are likely used for authentication but did not detect any apparent issues with them. This alert is informational. I would review authentication requests for potential vulnerabilities, such as insecure password storage.
+
+4. Modern Web Application Detected (Passive Alert 10109)
+ZAP detected that the application is a modern web application, likely using dynamic JavaScript frameworks or Single Page Application technology. This alert is informational. No direct action required, but this information can guide further testing.
+
+5. Session Management Response Identified (Passive Alert 10112)
+ZAP identified responses containing session management tokens, such as cookies or headers. This alert is informational and indicates how session management is implemented.
+I would review session management practices. Ensure tokens are random, unique, and securely generated, and verify that session tokens are stored and transmitted securely.
+
+
+### Project phase 2 reports:
 
 [Uploadin# ZAP by Checkmarx Scanning Report
 
